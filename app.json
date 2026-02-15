@@ -1,0 +1,11 @@
+{
+  "android": {
+    "package": "com.anonymous.reactnativeems"
+  },
+  "ios": {
+    "bundleIdentifier": "com.anonymous.reactnativeems"
+  },
+  "plugins": [
+    "expo-secure-store"
+  ]
+}
