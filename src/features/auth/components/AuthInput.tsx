@@ -4,6 +4,7 @@ import {
   TextInput,
   StyleSheet,
   TouchableOpacity,
+  KeyboardTypeOptions,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { colors } from "../../../theme/colors";
@@ -13,7 +14,9 @@ interface AuthInputProps {
   value: string;
   onChangeText: (text: string) => void;
   secure?: boolean;
-  icon?: keyof typeof Feather.glyphMap;
+  icon?: any; // Use any to avoid icon set mismatch errors for now
+  keyboardType?: KeyboardTypeOptions;
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
 }
 
 export default function AuthInput({
@@ -22,6 +25,8 @@ export default function AuthInput({
   onChangeText,
   secure = false,
   icon,
+  keyboardType,
+  autoCapitalize,
 }: AuthInputProps) {
   const [isHidden, setIsHidden] = useState(secure);
 
@@ -45,6 +50,8 @@ export default function AuthInput({
         secureTextEntry={isHidden}
         placeholderTextColor="#9CA3AF"
         style={styles.input}
+        keyboardType={keyboardType}
+        autoCapitalize={autoCapitalize}
       />
 
       {/* Password Toggle */}

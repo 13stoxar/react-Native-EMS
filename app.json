@@ -1,11 +1,53 @@
 {
-  "android": {
-    "package": "com.anonymous.reactnativeems"
-  },
-  "ios": {
-    "bundleIdentifier": "com.anonymous.reactnativeems"
-  },
-  "plugins": [
-    "expo-secure-store"
-  ]
+  "expo": {
+    "name": "EMS - Smart Expense Tracker",
+    "slug": "react-native-ems",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ocr.ems"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.ocr.ems",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_SMS",
+        "android.permission.RECEIVE_SMS",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-camera",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you select a bill to scan."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "407972d8-9fc7-4085-93cf-7837e2ab8847"
+      }
+    }
+  }
 }

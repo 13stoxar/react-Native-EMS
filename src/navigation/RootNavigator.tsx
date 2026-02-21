@@ -2,7 +2,7 @@ import React from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import DashboardScreen from "../features/dashboard/DashboardScreen";
-import ScanReceiptScreen from "../features/scan/ScanReceiptScreen";
+import ScanScreen from "../features/scan/ScanScreen";
 import LoginScreen from "../features/auth/LoginScreen";
 import SignupScreen from "../features/auth/SignupScreen";
 import { useAuth } from "../core/hooks/useAuth";
@@ -14,11 +14,11 @@ export default function RootNavigator() {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Navigator id="root-navigator" screenOptions={{ headerShown: false }}>
         {userToken ? (
           <>
             <Stack.Screen name="Dashboard" component={DashboardScreen} />
-            <Stack.Screen name="Scan" component={ScanReceiptScreen} />
+            <Stack.Screen name="Scan" component={ScanScreen} />
           </>
         ) : (
           <>

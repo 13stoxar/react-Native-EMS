@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Alert,
 } from "react-native";
 import { AntDesign, FontAwesome } from "@expo/vector-icons";
 import AuthInput from "./components/AuthInput";
@@ -17,7 +18,12 @@ export default function SignupScreen({ navigation }: any) {
   const [password, setPassword] = useState("");
 
   const handleSignup = () => {
-    console.log("Register pressed");
+    if (!name || !email || !password) {
+        Alert.alert("Error", "Please fill in all fields");
+        return;
+    }
+    // For prototype, just go to MainApp
+    navigation.replace("MainApp");
   };
 
   return (
@@ -64,18 +70,18 @@ export default function SignupScreen({ navigation }: any) {
       </View>
 
       {/* Social Login Buttons */}
-      <TouchableOpacity style={styles.socialBtn}>
+      <TouchableOpacity style={styles.socialBtn} onPress={() => navigation.replace("MainApp")}>
         <AntDesign name="google" size={20} color="#DB4437" />
         <Text style={styles.socialText}>Continue with Google</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.socialBtn}>
+      <TouchableOpacity style={styles.socialBtn} onPress={() => navigation.replace("MainApp")}>
         <FontAwesome name="facebook" size={20} color="#1877F2" />
         <Text style={styles.socialText}>Continue with Facebook</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.socialBtn}>
-        <AntDesign name="apple1" size={20} color="#000" />
+      <TouchableOpacity style={styles.socialBtn} onPress={() => navigation.replace("MainApp")}>
+        <AntDesign name="apple" size={20} color="#000" />
         <Text style={styles.socialText}>Continue with Apple</Text>
       </TouchableOpacity>
 
@@ -117,7 +123,7 @@ const styles = StyleSheet.create({
   line: {
     flex: 1,
     height: 1,
-    backgroundColor: "#E5E7EB",
+    backgroundColor: colors.border,
   },
   orText: {
     marginHorizontal: 10,
@@ -127,16 +133,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     paddingVertical: 14,
     borderRadius: 14,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: colors.border,
   },
   socialText: {
     marginLeft: 10,
     fontSize: 15,
+    color: colors.textPrimary,
   },
   footer: {
     flexDirection: "row",
@@ -146,5 +153,6 @@ const styles = StyleSheet.create({
   link: {
     color: colors.primary,
     fontWeight: "600",
+    marginLeft: 5,
   },
 });
