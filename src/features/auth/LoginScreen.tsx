@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,23 +6,78 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from "react-native";
-import { AntDesign, FontAwesome } from "@expo/vector-icons";
+import { AntDesign } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import * as WebBrowser from "expo-web-browser";
+import * as Google from "expo-auth-session/providers/google";
 import AuthInput from "./components/AuthInput";
 import AuthButton from "./components/AuthButton";
 import { colors } from "../../theme/colors";
+import { useAuth } from "../../core/hooks/useAuth";
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen({ navigation }: any) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = () => {
+  const { login, googleLogin } = useAuth();
+
+  // ✅ CLEAN ANDROID GOOGLE AUTH (PRODUCTION SAFE)
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    androidClientId:
+      "437335424413-g9rnct43ob03gm7fpvafktqlj2e8p7fv.apps.googleusercontent.com",
+    scopes: ["openid", "profile", "email"],
+  });
+
+  // ✅ HANDLE GOOGLE RESPONSE
+  useEffect(() => {
+    if (response?.type === "success") {
+      const token = response.authentication?.accessToken;
+
+      if (token) {
+        handleGoogleLogin(token);
+      } else {
+        Alert.alert("Google Login Failed", "No access token received");
+      }
+    }
+
+    if (response?.type === "error") {
+      Alert.alert("Google Auth Error", "Authentication failed");
+    }
+  }, [response]);
+
+  const handleGoogleLogin = async (token: string) => {
+    try {
+      setLoading(true);
+      await googleLogin(token);
+    } catch (error) {
+      Alert.alert("Error", "Google Login Failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogin = async () => {
     if (!email || !password) {
       Alert.alert("Error", "Please fill in all fields");
       return;
     }
-    navigation.replace("MainApp");
+
+    try {
+      setLoading(true);
+      await login(email, password);
+    } catch (error: any) {
+      Alert.alert(
+        "Login Failed",
+        error?.response?.data?.message || "Invalid email or password"
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -60,10 +115,15 @@ export default function LoginScreen({ navigation }: any) {
               <Text style={styles.forgot}>Forgot Password?</Text>
             </TouchableOpacity>
 
-            <AuthButton
-              title="Log In"
-              onPress={handleLogin}
-            />
+            {loading ? (
+              <ActivityIndicator
+                size="large"
+                color={colors.primary}
+                style={{ marginVertical: 15 }}
+              />
+            ) : (
+              <AuthButton title="Log In" onPress={handleLogin} />
+            )}
           </View>
 
           {/* OR Divider */}
@@ -73,21 +133,14 @@ export default function LoginScreen({ navigation }: any) {
             <View style={styles.line} />
           </View>
 
-          {/* Social Login Buttons */}
-          <TouchableOpacity 
-            style={styles.socialBtn}
-            onPress={() => navigation.replace("MainApp")}
+          {/* GOOGLE LOGIN BUTTON */}
+          <TouchableOpacity
+            style={[styles.socialBtn, (!request || loading) && { opacity: 0.6 }]}
+            disabled={!request || loading}
+            onPress={() => promptAsync({ useProxy: false })}
           >
             <AntDesign name="google" size={20} color="#DB4437" />
             <Text style={styles.socialText}>Continue with Google</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.socialBtn}
-            onPress={() => navigation.replace("MainApp")}
-          >
-            <FontAwesome name="facebook" size={20} color="#1877F2" />
-            <Text style={styles.socialText}>Continue with Facebook</Text>
           </TouchableOpacity>
 
           {/* Footer */}
@@ -111,14 +164,14 @@ const styles = StyleSheet.create({
   },
   container: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: "center",
     padding: 20,
   },
   card: {
     backgroundColor: colors.surface,
     borderRadius: 20,
     padding: 24,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
@@ -128,12 +181,12 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "700",
     color: colors.textPrimary,
-    textAlign: 'center',
+    textAlign: "center",
   },
   subtitle: {
     marginTop: 8,
     color: colors.textSecondary,
-    textAlign: 'center',
+    textAlign: "center",
   },
   forgot: {
     textAlign: "right",
@@ -170,6 +223,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     fontSize: 15,
     color: colors.textPrimary,
+    fontWeight: "500",
   },
   footer: {
     flexDirection: "row",

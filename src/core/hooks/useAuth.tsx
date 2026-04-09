@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { saveToken, getToken, removeToken } from "../storage/secureStorage";
-import { loginUser } from "../api/auth.api";
+import { loginUser, loginWithGoogle } from "../api/auth.api";
 
 interface AuthContextType {
   userToken: string | null;
   login: (email: string, password: string) => Promise<void>;
+  googleLogin: (accessToken: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -27,13 +28,19 @@ export const AuthProvider = ({ children }: any) => {
     setUserToken(data.token);
   };
 
+  const googleLogin = async (accessToken: string) => {
+    const data = await loginWithGoogle(accessToken);
+    await saveToken(data.token);
+    setUserToken(data.token);
+  };
+
   const logout = async () => {
     await removeToken();
     setUserToken(null);
   };
 
   return (
-    <AuthContext.Provider value={{ userToken, login, logout }}>
+    <AuthContext.Provider value={{ userToken, login, googleLogin, logout }}>
       {children}
     </AuthContext.Provider>
   );

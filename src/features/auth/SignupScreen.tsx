@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,24 +6,83 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from "react-native";
-import { AntDesign, FontAwesome } from "@expo/vector-icons";
+import { AntDesign } from "@expo/vector-icons";
+import * as WebBrowser from "expo-web-browser";
+import * as Google from "expo-auth-session/providers/google";
+import { makeRedirectUri } from "expo-auth-session";
 import AuthInput from "./components/AuthInput";
 import AuthButton from "./components/AuthButton";
 import { colors } from "../../theme/colors";
+import { registerUser } from "../../core/api/auth.api";
+import { useAuth } from "../../core/hooks/useAuth";
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function SignupScreen({ navigation }: any) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const { login, googleLogin } = useAuth();
 
-  const handleSignup = () => {
+  // Create a reliable redirect URI
+  const redirectUri = makeRedirectUri({
+    scheme: 'ems-app',
+    path: 'google-auth'
+  });
+
+  // Google Auth Hook
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    androidClientId: "437335424413-g9rnct43ob03gm7fpvafktqlj2e8p7fv.apps.googleusercontent.com",
+    iosClientId: "YOUR_IOS_CLIENT_ID.apps.googleusercontent.com",
+    webClientId: "437335424413-g9rnct43ob03gm7fpvafktqlj2e8p7fv.apps.googleusercontent.com",
+  }, {
+    projectNameForProxy: "@your-expo-username/react-native-ems",
+  });
+
+  useEffect(() => {
+    // Helpful log to fix "Request is invalid"
+    console.log("Your Redirect URI is:", redirectUri);
+
+    if (response?.type === "success") {
+      const { authentication } = response;
+      console.log("Google Signup Success, Token:", authentication?.accessToken);
+      handleGoogleLogin(authentication?.accessToken || "");
+    } else if (response?.type === "error") {
+      console.error("Google Signup Error:", response.error);
+    }
+  }, [response]);
+
+  const handleGoogleLogin = async (token: string) => {
+    setLoading(true);
+    try {
+      await googleLogin(token);
+    } catch (error) {
+      Alert.alert("Error", "Google Signup Failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignup = async () => {
     if (!name || !email || !password) {
         Alert.alert("Error", "Please fill in all fields");
         return;
     }
-    // For prototype, just go to MainApp
-    navigation.replace("MainApp");
+    
+    setLoading(true);
+    try {
+      await registerUser(name, email, password);
+      Alert.alert("Success", "Account created successfully! Logging you in...");
+      await login(email, password);
+    } catch (error: any) {
+      console.error(error);
+      Alert.alert("Signup Failed", error.response?.data?.message || "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -59,7 +118,11 @@ export default function SignupScreen({ navigation }: any) {
           icon="lock"
         />
 
-        <AuthButton title="Sign Up" onPress={handleSignup} />
+        {loading ? (
+          <ActivityIndicator size="large" color={colors.primary} style={{ marginVertical: 10 }} />
+        ) : (
+          <AuthButton title="Sign Up" onPress={handleSignup} />
+        )}
       </View>
 
       {/* OR Divider */}
@@ -70,19 +133,13 @@ export default function SignupScreen({ navigation }: any) {
       </View>
 
       {/* Social Login Buttons */}
-      <TouchableOpacity style={styles.socialBtn} onPress={() => navigation.replace("MainApp")}>
+      <TouchableOpacity 
+        style={[styles.socialBtn, (!request || loading) && { opacity: 0.6 }]} 
+        disabled={!request || loading}
+        onPress={() => promptAsync()}
+      >
         <AntDesign name="google" size={20} color="#DB4437" />
         <Text style={styles.socialText}>Continue with Google</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.socialBtn} onPress={() => navigation.replace("MainApp")}>
-        <FontAwesome name="facebook" size={20} color="#1877F2" />
-        <Text style={styles.socialText}>Continue with Facebook</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.socialBtn} onPress={() => navigation.replace("MainApp")}>
-        <AntDesign name="apple" size={20} color="#000" />
-        <Text style={styles.socialText}>Continue with Apple</Text>
       </TouchableOpacity>
 
       {/* Footer */}

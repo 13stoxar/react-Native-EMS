@@ -8,6 +8,9 @@ import {
   ActivityIndicator,
   TextInput,
   ScrollView,
+  Platform,
+  Image,
+  Dimensions,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -15,22 +18,55 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { processOCR } from '../../core/api/ocr.api';
+import { createExpense } from '../../core/api/expense.api';
 import { colors } from '../../theme/colors';
+
+const { width } = Dimensions.get('window');
+
+interface ScannedBill {
+  id: string;
+  merchant: string;
+  date: string;
+  time: string;
+  items: any[];
+  grandTotal: number;
+  imageUri?: string;
+  scannedAt: string;
+  isSaved: boolean;
+}
 
 export default function ScanScreen({ navigation }: any) {
   const [permission, requestPermission] = useCameraPermissions();
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [items, setItems] = useState<any[]>([]);
-  const [merchant, setMerchant] = useState('');
-  const [currentItem, setCurrentItem] = useState({ name: '', price: '' });
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // Requirement: Maintain an array of scanned items
+  const [allScannedBills, setAllScannedBills] = useState<ScannedBill[]>([]);
+  
   const cameraRef = useRef<any>(null);
 
-  // Camera start karo
-  const startCamera = async () => {
-    const { status } = await requestPermission();
-    if (status === 'granted') {
-      setIsCameraActive(true);
+  // Load saved items on app reload
+  useEffect(() => {
+    loadBills();
+  }, []);
+
+  const loadBills = async () => {
+    try {
+      const saved = await AsyncStorage.getItem('scanned_bills_session');
+      if (saved) {
+        setAllScannedBills(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.error('Failed to load bills', e);
+    }
+  };
+
+  const saveBillsToStorage = async (bills: ScannedBill[]) => {
+    try {
+      await AsyncStorage.setItem('scanned_bills_session', JSON.stringify(bills));
+    } catch (e) {
+      console.error('Failed to save bills', e);
     }
   };
 
@@ -39,18 +75,31 @@ export default function ScanScreen({ navigation }: any) {
     setProcessing(true);
     try {
       const result = await processOCR(uri);
-      if (result.items.length > 0) {
-        setItems((prev) => [...prev, ...result.items]);
-        if (result.merchant && !merchant) {
-          setMerchant(result.merchant);
-        }
-        Alert.alert('Success', `Detected ${result.items.length} items${result.merchant ? ' from ' + result.merchant : ''}`);
-      } else {
-        Alert.alert('Info', 'No items detected. Try another photo or add manually.');
-      }
-    } catch (error) {
+      
+      // Requirement: On each new scan, push the new data into the array
+      const newBill: ScannedBill = {
+        id: Date.now().toString(),
+        merchant: result.merchant || 'Unknown Merchant',
+        date: result.date || new Date().toISOString().split('T')[0],
+        time: result.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        items: result.items || [],
+        grandTotal: result.total || 0,
+        imageUri: uri,
+        scannedAt: new Date().toISOString(),
+        isSaved: false,
+      };
+
+      const updatedBills = [newBill, ...allScannedBills];
+      setAllScannedBills(updatedBills);
+      await saveBillsToStorage(updatedBills);
+
+      Alert.alert(
+        'Scan Complete',
+        `Added bill from ${newBill.merchant}. Total: ₹${newBill.grandTotal.toFixed(2)}`
+      );
+    } catch (error: any) {
       console.error(error);
-      Alert.alert('Error', 'Failed to process image');
+      Alert.alert('Error', error.message || 'Failed to process image');
     } finally {
       setProcessing(false);
     }
@@ -60,7 +109,10 @@ export default function ScanScreen({ navigation }: any) {
   const takePhoto = async () => {
     if (cameraRef.current) {
       try {
-        const photo = await cameraRef.current.takePictureAsync();
+        const photo = await cameraRef.current.takePictureAsync({
+          quality: 0.8,
+          base64: false,
+        });
         setIsCameraActive(false);
         handleImageSource(photo.uri);
       } catch (error) {
@@ -69,68 +121,100 @@ export default function ScanScreen({ navigation }: any) {
     }
   };
 
-  // Item add karo
-  const addItem = () => {
-    if (currentItem.name && currentItem.price) {
-      setItems([...items, { 
-        ...currentItem, 
-        id: Date.now().toString(),
-        price: parseFloat(currentItem.price) 
-      }]);
-      setCurrentItem({ name: '', price: '' });
-    } else {
-      Alert.alert('Error', 'Please enter item name and price');
-    }
+  const deleteBill = async (id: string) => {
+    const updated = allScannedBills.filter(b => b.id !== id);
+    setAllScannedBills(updated);
+    await saveBillsToStorage(updated);
   };
 
-  // Item delete karo
-  const deleteItem = (id: string) => {
-    setItems(items.filter(item => item.id !== id));
-  };
+  // Final save functionality
+  const saveAllToPermanent = async () => {
+    if (allScannedBills.length === 0) return;
 
-  // Total calculate karo
-  const calculateTotal = () => {
-    return items.reduce((sum, item) => sum + (item.price || 0), 0);
-  };
-
-  // Bill save karo
-  const saveBill = async () => {
-    if (items.length === 0) {
-      Alert.alert('Error', 'Add at least one item');
-      return;
-    }
-
-    const billData = {
-      id: Date.now().toString(),
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toLocaleTimeString(),
-      merchant: merchant || 'Unknown Merchant',
-      items: items,
-      grandTotal: calculateTotal(),
-      scannedAt: new Date().toISOString(),
-    };
-
+    setIsSaving(true);
     try {
-      // Save to AsyncStorage
-      const existingBills = await AsyncStorage.getItem('bills');
-      const bills = existingBills ? JSON.parse(existingBills) : [];
-      bills.push(billData);
-      await AsyncStorage.setItem('bills', JSON.stringify(bills));
+      const existingPermanent = await AsyncStorage.getItem('bills');
+      const permanentBills = existingPermanent ? JSON.parse(existingPermanent) : [];
+      
+      // Filter out bills already saved if we had that logic, 
+      // but for now let's just push all new ones
+      const unsavedBills = allScannedBills.filter(b => !b.isSaved);
+      
+      // 1. Sync with backend
+      for (const bill of unsavedBills) {
+        try {
+          await createExpense({
+            merchant: bill.merchant,
+            amount: bill.grandTotal,
+            date: bill.date,
+            items: bill.items,
+            category: 'Scanned Bill'
+          });
+        } catch (apiError) {
+          console.warn(`API sync failed for bill ${bill.id}`);
+        }
+      }
 
-      // Update total expense
+      // 2. Update local permanent storage
+      const newPermanent = [...unsavedBills, ...permanentBills];
+      await AsyncStorage.setItem('bills', JSON.stringify(newPermanent));
+
+      // 3. Update total spent
       const totalSpent = await AsyncStorage.getItem('totalSpent');
-      const newTotal = (parseFloat(totalSpent || '0') + billData.grandTotal).toString();
+      const additional = unsavedBills.reduce((sum, b) => sum + b.grandTotal, 0);
+      const newTotal = (parseFloat(totalSpent || '0') + additional).toString();
       await AsyncStorage.setItem('totalSpent', newTotal);
 
-      Alert.alert('Success', 'Bill saved successfully!');
-      setItems([]);
-      setMerchant('');
+      // 4. Clear current session
+      setAllScannedBills([]);
+      await AsyncStorage.removeItem('scanned_bills_session');
+
+      Alert.alert('Success', 'All bills saved to your expenses!');
       navigation.goBack();
-      
     } catch (error) {
-      Alert.alert('Error', 'Failed to save bill');
+      Alert.alert('Error', 'Failed to save bills permanently');
+    } finally {
+      setIsSaving(false);
     }
   };
+
+  const renderBillItem = (bill: ScannedBill) => (
+    <View key={bill.id} style={styles.billCard}>
+      <View style={styles.billCardHeader}>
+        {bill.imageUri ? (
+          <Image source={{ uri: bill.imageUri }} style={styles.billPreview} />
+        ) : (
+          <View style={[styles.billPreview, styles.placeholderPreview]}>
+            <Ionicons name="document-text" size={30} color={colors.textSecondary} />
+          </View>
+        )}
+        <View style={styles.billInfo}>
+          <Text style={styles.merchantText} numberOfLines={1}>{bill.merchant}</Text>
+          <Text style={styles.dateTimeText}>{bill.date} • {bill.time}</Text>
+          <Text style={styles.totalText}>₹{bill.grandTotal.toFixed(2)}</Text>
+        </View>
+        <TouchableOpacity onPress={() => deleteBill(bill.id)} style={styles.deleteBtn}>
+          <Ionicons name="trash-outline" size={22} color={colors.error} />
+        </TouchableOpacity>
+      </View>
+      
+      {bill.items.length > 0 && (
+        <View style={styles.itemsPreview}>
+          <Text style={styles.itemsCountText}>{bill.items.length} items detected</Text>
+          <View style={styles.itemTags}>
+            {bill.items.slice(0, 3).map((item: any, idx: number) => (
+              <View key={idx} style={styles.itemTag}>
+                <Text style={styles.itemTagText} numberOfLines={1}>{item.name}</Text>
+              </View>
+            ))}
+            {bill.items.length > 3 && (
+              <Text style={styles.moreItemsText}>+{bill.items.length - 3} more</Text>
+            )}
+          </View>
+        </View>
+      )}
+    </View>
+  );
 
   if (!permission) {
     return (
@@ -142,22 +226,16 @@ export default function ScanScreen({ navigation }: any) {
 
   if (!permission.granted) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', padding: 20 }]}>
+      <View style={styles.permissionContainer}>
         <Ionicons name="camera-outline" size={64} color={colors.textSecondary} />
-        <Text style={{ fontSize: 18, color: colors.textPrimary, textAlign: 'center', marginTop: 20 }}>
+        <Text style={styles.permissionText}>
           Camera permission is required to scan bills
         </Text>
         <TouchableOpacity 
-          style={[styles.saveAllBtn, { marginTop: 30, width: '100%' }]} 
+          style={styles.grantBtn} 
           onPress={requestPermission}
         >
-          <Text style={styles.saveAllText}>Grant Permission</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={{ marginTop: 20 }} 
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={{ color: colors.primary }}>Go Back</Text>
+          <Text style={styles.grantBtnText}>Grant Permission</Text>
         </TouchableOpacity>
       </View>
     );
@@ -165,84 +243,73 @@ export default function ScanScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <LinearGradient colors={[colors.primary, colors.primaryDark]} style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Scan Bill</Text>
+        <Text style={styles.headerTitle}>Bill Scanner</Text>
         <View style={{ width: 24 }} />
       </LinearGradient>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Manual Item Entry Section */}
-        <View style={styles.manualSection}>
-          <Text style={styles.sectionTitle}>Add Items Manually</Text>
-          
-          <View style={styles.inputRow}>
-            <TextInput
-              style={[styles.input, { flex: 2 }]}
-              placeholder="Item name (e.g., Milk)"
-              value={currentItem.name}
-              onChangeText={(text) => setCurrentItem({ ...currentItem, name: text })}
-              placeholderTextColor={colors.textSecondary}
-            />
-            <TextInput
-              style={[styles.input, { flex: 1 }]}
-              placeholder="Price"
-              value={currentItem.price}
-              onChangeText={(text) => setCurrentItem({ ...currentItem, price: text })}
-              keyboardType="numeric"
-              placeholderTextColor={colors.textSecondary}
-            />
-            <TouchableOpacity style={styles.addBtn} onPress={addItem}>
-              <Ionicons name="add" size={24} color="#fff" />
-            </TouchableOpacity>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        
+        {/* Requirement: Render all items dynamically */}
+        <View style={styles.listContainer}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Scanned Bills ({allScannedBills.length})</Text>
+            {allScannedBills.length > 0 && (
+              <TouchableOpacity onPress={() => {
+                setAllScannedBills([]);
+                AsyncStorage.removeItem('scanned_bills_session');
+              }}>
+                <Text style={styles.clearAllText}>Clear All</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
-          {/* Items List */}
-          {items.length > 0 ? (
-            <>
-              {items.map((item) => (
-                <View key={item.id} style={styles.itemRow}>
-                  <Text style={styles.itemName}>{item.name}</Text>
-                  <Text style={styles.itemPrice}>₹{item.price}</Text>
-                  <TouchableOpacity onPress={() => deleteItem(item.id)}>
-                    <Ionicons name="trash-outline" size={20} color={colors.error} />
-                  </TouchableOpacity>
-                </View>
-              ))}
-              
-              <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Total:</Text>
-                <Text style={styles.totalValue}>₹{calculateTotal().toFixed(2)}</Text>
-              </View>
-            </>
+          {allScannedBills.length > 0 ? (
+            allScannedBills.map(renderBillItem)
           ) : (
-            <Text style={styles.emptyText}>No items added yet</Text>
+            <View style={styles.emptyState}>
+              <Ionicons name="scan-outline" size={60} color="#E1E6EF" />
+              <Text style={styles.emptyText}>No bills scanned yet in this session.</Text>
+            </View>
           )}
         </View>
 
-        <View style={styles.divider}>
-          <View style={styles.line} />
-          <Text style={styles.orText}>OR</Text>
-          <View style={styles.line} />
-        </View>
-
-        {/* Camera Section */}
-        <View style={styles.cameraSection}>
-          <Text style={styles.sectionTitle}>Scan with Camera</Text>
-          
+        <View style={styles.scannerActions}>
           {processing ? (
-            <View style={styles.processingContainer}>
+            <View style={styles.processingCard}>
               <ActivityIndicator size="large" color={colors.primary} />
-              <Text style={styles.processingText}>Extracting items...</Text>
+              <Text style={styles.processingText}>Analyzing bill with AI...</Text>
             </View>
           ) : !isCameraActive ? (
-            <TouchableOpacity style={styles.startCameraBtn} onPress={startCamera}>
-              <Ionicons name="camera" size={40} color={colors.primary} />
-              <Text style={styles.startCameraText}>Start Camera</Text>
-            </TouchableOpacity>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={styles.actionBtn} onPress={() => setIsCameraActive(true)}>
+                <LinearGradient colors={['#4776E6', '#8E54E9']} style={styles.actionGradient}>
+                  <Ionicons name="camera" size={28} color="#fff" />
+                  <Text style={styles.actionBtnText}>Take Photo</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.actionBtn}
+                onPress={async () => {
+                  const result = await ImagePicker.launchImageLibraryAsync({
+                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                    quality: 0.8,
+                  });
+                  if (!result.canceled) {
+                    handleImageSource(result.assets[0].uri);
+                  }
+                }}
+              >
+                <LinearGradient colors={['#11998E', '#38EF7D']} style={styles.actionGradient}>
+                  <Ionicons name="images" size={28} color="#fff" />
+                  <Text style={styles.actionBtnText}>Gallery</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
           ) : (
             <View style={styles.cameraContainer}>
               <CameraView
@@ -251,45 +318,33 @@ export default function ScanScreen({ navigation }: any) {
                 facing="back"
               />
               <View style={styles.cameraOverlay}>
-                <TouchableOpacity 
-                  style={styles.captureButton}
-                  onPress={takePhoto}
-                >
+                <TouchableOpacity style={styles.captureBtn} onPress={takePhoto}>
                   <View style={styles.captureInner} />
                 </TouchableOpacity>
                 <TouchableOpacity 
                   style={styles.closeCamera}
                   onPress={() => setIsCameraActive(false)}
                 >
-                  <Ionicons name="close-circle" size={32} color="#fff" />
+                  <Ionicons name="close-circle" size={44} color="#fff" />
                 </TouchableOpacity>
               </View>
             </View>
           )}
-
-          <TouchableOpacity 
-            style={styles.galleryBtn}
-            onPress={async () => {
-              const result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                quality: 1,
-              });
-              if (!result.canceled) {
-                handleImageSource(result.assets[0].uri);
-              }
-            }}
-          >
-            <Ionicons name="images-outline" size={24} color={colors.primary} />
-            <Text style={styles.galleryText}>Choose from Gallery</Text>
-          </TouchableOpacity>
         </View>
 
-        {/* Save Button */}
-        {items.length > 0 && (
-          <TouchableOpacity style={styles.saveAllBtn} onPress={saveBill}>
-            <Text style={styles.saveAllText}>
-              Save Bill (₹{calculateTotal().toFixed(2)})
-            </Text>
+        {allScannedBills.length > 0 && !isCameraActive && (
+          <TouchableOpacity 
+            style={[styles.saveAllBtn, isSaving && { opacity: 0.7 }]} 
+            onPress={saveAllToPermanent}
+            disabled={isSaving}
+          >
+            {isSaving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.saveAllBtnText}>
+                Save All Bills to Expenses
+              </Text>
+            )}
           </TouchableOpacity>
         )}
       </ScrollView>
@@ -300,13 +355,13 @@ export default function ScanScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#F8FAFC',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 50,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingBottom: 20,
     paddingHorizontal: 20,
   },
@@ -315,209 +370,230 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
-  manualSection: {
-    backgroundColor: colors.surface,
-    margin: 20,
+  scrollContent: {
+    paddingBottom: 40,
+  },
+  listContainer: {
     padding: 20,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  clearAllText: {
+    color: colors.error,
     fontWeight: '600',
-    color: colors.textPrimary,
-    marginBottom: 15,
   },
-  inputRow: {
+  billCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 15,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  billCardHeader: {
     flexDirection: 'row',
-    gap: 10,
-    marginBottom: 15,
+    alignItems: 'center',
   },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    backgroundColor: colors.background,
-    color: colors.textPrimary,
+  billPreview: {
+    width: 60,
+    height: 60,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
   },
-  addBtn: {
-    backgroundColor: colors.primary,
-    width: 44,
-    height: 44,
-    borderRadius: 8,
+  placeholderPreview: {
     justifyContent: 'center',
     alignItems: 'center',
   },
-  itemRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.background,
-  },
-  itemName: {
-    flex: 2,
-    fontSize: 14,
-    color: colors.textPrimary,
-  },
-  itemPrice: {
+  billInfo: {
     flex: 1,
-    fontSize: 14,
-    fontWeight: '500',
-    color: colors.textPrimary,
-    textAlign: 'right',
+    marginLeft: 15,
   },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 15,
-    paddingTop: 15,
-    borderTopWidth: 2,
-    borderTopColor: colors.border,
-  },
-  totalLabel: {
+  merchantText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: colors.textPrimary,
+    fontWeight: '700',
+    color: '#1E293B',
   },
-  totalValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  dateTimeText: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  totalText: {
+    fontSize: 16,
+    fontWeight: '800',
     color: colors.primary,
+    marginTop: 4,
+  },
+  deleteBtn: {
+    padding: 5,
+  },
+  itemsPreview: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  itemsCountText: {
+    fontSize: 11,
+    color: '#94A3B8',
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  itemTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  itemTag: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    maxWidth: 100,
+  },
+  itemTagText: {
+    fontSize: 10,
+    color: '#475569',
+  },
+  moreItemsText: {
+    fontSize: 10,
+    color: '#94A3B8',
+    paddingVertical: 4,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
   },
   emptyText: {
+    marginTop: 15,
+    color: '#94A3B8',
+    fontSize: 14,
     textAlign: 'center',
-    color: colors.textSecondary,
-    padding: 20,
   },
-  divider: {
+  scannerActions: {
+    paddingHorizontal: 20,
+  },
+  buttonRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 20,
-    marginVertical: 10,
+    gap: 15,
   },
-  line: {
+  actionBtn: {
     flex: 1,
-    height: 1,
-    backgroundColor: colors.border,
   },
-  orText: {
-    marginHorizontal: 10,
-    color: colors.textSecondary,
-  },
-  cameraSection: {
-    backgroundColor: colors.surface,
-    margin: 20,
-    padding: 20,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  startCameraBtn: {
+  actionGradient: {
+    paddingVertical: 20,
+    borderRadius: 20,
     alignItems: 'center',
-    padding: 30,
-    borderWidth: 2,
-    borderColor: colors.border,
-    borderRadius: 12,
-    borderStyle: 'dashed',
+    justifyContent: 'center',
   },
-  startCameraText: {
-    fontSize: 16,
-    color: colors.primary,
-    marginTop: 10,
+  actionBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    marginTop: 8,
   },
   cameraContainer: {
-    height: 350,
-    borderRadius: 12,
+    height: 450,
+    borderRadius: 24,
     overflow: 'hidden',
-    marginBottom: 10,
+    backgroundColor: '#000',
   },
   camera: {
     flex: 1,
   },
   cameraOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.1)',
+    paddingBottom: 40,
   },
-  captureButton: {
-    position: 'absolute',
-    bottom: 20,
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+  captureBtn: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: 'rgba(255,255,255,0.3)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 4,
+    borderWidth: 5,
     borderColor: '#fff',
   },
   captureInner: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#fff',
   },
   closeCamera: {
     position: 'absolute',
-    top: 10,
-    right: 10,
+    top: 20,
+    right: 20,
   },
-  processingContainer: {
+  processingCard: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
     padding: 40,
     alignItems: 'center',
   },
   processingText: {
-    marginTop: 10,
-    color: colors.primary,
-    fontWeight: '500',
-  },
-  galleryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     marginTop: 15,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    borderRadius: 8,
-  },
-  galleryText: {
-    fontSize: 16,
     color: colors.primary,
-    marginLeft: 10,
+    fontWeight: '700',
   },
   saveAllBtn: {
     backgroundColor: colors.primary,
     margin: 20,
-    marginTop: 0,
-    padding: 16,
-    borderRadius: 12,
+    padding: 18,
+    borderRadius: 16,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
   },
-  saveAllText: {
+  saveAllBtnText: {
     color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  permissionContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+    backgroundColor: '#fff',
+  },
+  permissionText: {
     fontSize: 16,
-    fontWeight: '600',
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 20,
+    lineHeight: 24,
+  },
+  grantBtn: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 30,
+    paddingVertical: 15,
+    borderRadius: 12,
+    marginTop: 30,
+    width: '100%',
+    alignItems: 'center',
+  },
+  grantBtnText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });

@@ -2,6 +2,7 @@
   "expo": {
     "name": "EMS - Smart Expense Tracker",
     "slug": "react-native-ems",
+    "scheme": "ems-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -17,8 +18,6 @@
       "kotlinVersion": "2.1.21",
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.READ_SMS",
-        "android.permission.RECEIVE_SMS",
         "android.permission.RECORD_AUDIO"
       ]
     },
@@ -33,7 +32,8 @@
         {
           "photosPermission": "The app accesses your photos to let you select a bill to scan."
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {

@@ -49,6 +49,38 @@ describe('OCR Parser', () => {
     expect(result.items[2].price).toBe(45);
   });
 
+  it('should not extract dates as prices', () => {
+    const mockBlocks = [
+      {
+        lines: [
+          { text: 'DATE: 22.02.2026' },
+          { text: 'INV-2024-001' },
+          { text: 'Milk 1.50' },
+        ],
+      }
+    ];
+
+    const result = parseOCRBlocks(mockBlocks);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].name).toBe('Milk');
+    expect(result.items[0].price).toBe(1.50);
+  });
+
+  it('should handle quantities and multiple numbers in a line', () => {
+    const mockBlocks = [
+      {
+        lines: [
+          { text: '2 x Bread @ 25.00' },
+          { text: 'Milk 1.50 1' }, // Name Price Quantity
+        ],
+      }
+    ];
+
+    const result = parseOCRBlocks(mockBlocks);
+    expect(result.items).toHaveLength(2);
+    // Note: current implementation might struggle here, let's see
+  });
+
   it('should fallback to items sum if total is missing', () => {
     const mockBlocks = [
       {

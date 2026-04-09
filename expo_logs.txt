@@ -1,0 +1,9 @@
+  --non-interactive is not supported, use $CI=1 instead
+Could not find a shared URI scheme for the dev client between the local /ios and /android directories. App launches (QR code, interstitial, terminal keys) may not work as expected. You can configure a custom scheme using the --scheme option, or by running npx expo prebuild to regenerate the native directories with URI schemes.
+Starting project at /home/otc/Documents/ocr--tc/react-Native-EMS
+Starting Metro Bundler
+CommandError: failed to start tunnel
+
+remote gone away
+
+Check the Ngrok status page for outages: https://status.ngrok.com/

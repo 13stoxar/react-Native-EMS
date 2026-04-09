@@ -8,8 +8,10 @@ import {
 } from 'react-native';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAuth } from '../../core/hooks/useAuth';
 
 export default function ProfileScreen({ navigation }: any) {
+  const { logout } = useAuth();
   const menuItems = [
     { icon: 'person-outline', title: 'Personal Information', screen: 'PersonalInfo' },
     { icon: 'card-outline', title: 'Payment Methods', screen: 'PaymentMethods' },
@@ -61,7 +63,7 @@ export default function ProfileScreen({ navigation }: any) {
         ))}
       </View>
 
-      <TouchableOpacity style={styles.logoutBtn}>
+      <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
         <Ionicons name="log-out-outline" size={24} color="#EF4444" />
         <Text style={styles.logoutText}>Log Out</Text>
       </TouchableOpacity>
